@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8"/>
+  <title>Simple User App</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    :root{--bd:#e5e7eb;--muted:#6b7280}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;max-width:960px;margin:20px auto;padding:0 12px}
+    h2{margin-top:28px;border-bottom:1px solid #eee;padding-bottom:6px}
+    .card{border:1px solid var(--bd);border-radius:12px;padding:16px;margin:16px 0;position:relative}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    input{padding:10px;border:1px solid #ddd;border-radius:8px}
+    button{padding:10px 14px;border:1px solid #ddd;border-radius:10px;background:#fafafa;cursor:pointer}
+    button:hover{background:#f0f0f0}
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    th,td{border:1px solid #eee;padding:8px;text-align:left}
+    .ok{color:#2563eb}
+    .err{color:#dc2626}
+    .muted{color:var(--muted);font-size:12px}
+    .hidden{display:none}
+    .footer-right{display:flex;justify-content:flex-end;margin-top:8px}
+    a{color:#2563eb;text-decoration:none} a:hover{text-decoration:underline}
+  </style>
+</head>
+<body>
+  <h1>Simple User App</h1>
+  <div id="status" class="muted">未登录</div>
+
+  <!-- =============== 登录页 =============== -->
+  <section id="view-login" class="card">
+    <h2>登录</h2>
+    <div class="row">
+      <input id="l-email" placeholder="email" required style="min-width:260px">
+      <input id="l-pass"  placeholder="password" type="password" required style="min-width:200px">
+      <button id="btn-login">登录</button>
+    </div>
+    <div id="msg-login" class="muted" style="margin-top:6px"></div>
+    <div class="footer-right">
+      <a id="link-to-register" href="javascript:void(0)">注册</a>
+    </div>
+  </section>
+
+  <!-- =============== 注册页 =============== -->
+  <section id="view-register" class="card hidden">
+    <h2>注册</h2>
+    <div class="row">
+      <input id="code-input" placeholder="验证码（向管理员获取）" style="min-width:160px">
+    </div>
+    <div class="row">
+      <input id="r-email" placeholder="email" style="min-width:360px">
+    </div>
+    <div class="row">
+      <input id="r-pass"  placeholder="password" type="password" style="min-width:260px">
+    </div>
+    <div class="row">
+      <input id="r-pass2" placeholder="confirm password" type="password" style="min-width:260px">
+    </div>
+    <div class="row">
+      <button id="btn-register" type="button">注册</button>
+      <a id="link-back-login" href="javascript:void(0)" style="margin-left:auto">返回登录</a>
+    </div>
+    <div id="msg-register" class="muted" style="margin-top:6px"></div>
+    <div class="muted" style="margin-top:8px">说明：使用管理员提供的固定验证码。</div>
+  </section>
+
+  <!-- =============== 应用页（登录后） =============== -->
+  <section id="view-app" class="hidden">
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <h2 style="margin:0;border:0">用户列表</h2>
+        <div>
+          <button id="btn-logout" type="button">退出登录</button>
+        </div>
+      </div>
+      <div class="row">
+        <input id="q-email" placeholder="按 email 搜索（模糊）" style="min-width:260px">
+        <button id="btn-search">搜索</button>
+        <button id="btn-all">显示全部</button>
+      </div>
+      <table>
+        <thead>
+          <tr><th>id</th><th>email</th><th>name</th><th>region</th><th>操作</th></tr>
+        </thead>
+        <tbody id="users-tbody"></tbody>
+      </table>
+      <div class="muted">需要登录后才能拉取列表</div>
+    </div>
+
+    <div class="card">
+      <h2>操作记录</h2>
+      <div class="row"><button id="btn-logs">刷新日志</button></div>
+      <table>
+        <thead>
+          <tr><th>#</th><th>userId</th><th>email</th><th>action</th><th>at</th></tr>
+        </thead>
+        <tbody id="logs-tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- ===== LLM 行为：会话列表 ===== -->
+    <div class="card">
+      <h2>LLM 会话</h2>
+      <div class="row">
+        <input id="llm-email" placeholder="按 email 搜索会话（模糊）" style="min-width:260px">
+        <button id="btn-llm-sessions">查会话</button>
+        <button id="btn-viz" type="button" disabled>可视化</button>
+      </div>
+      <table>
+        <thead>
+          <tr><th>sessionKey</th><th>userId</th><th>email</th><th>started_at</th><th>操作</th></tr>
+        </thead>
+        <tbody id="llm-sessions-tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- ===== LLM 行为：事件列表 ===== -->
+    <div class="card">
+      <h2>LLM 事件</h2>
+      <div class="row">
+        <input id="llm-session" placeholder="sessionKey" style="min-width:260px">
+        <input id="llm-type" placeholder="type（prompt/response/...）" style="min-width:220px">
+        <button id="btn-llm-events">查事件</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>ts</th><th>type</th><th>role</th><th>email</th>
+            <th>session</th><th>text</th><th>error</th>
+          </tr>
+        </thead>
+        <tbody id="llm-events-tbody"></tbody>
+      </table>
+    </div>
+
+  </section>
+
+<script>
+/* ============ 工具 & 全局状态 ============ */
+let token = localStorage.getItem('token') || null;
+
+function setStatus(text, ok=false){
+  const el = document.getElementById('status');
+  el.textContent = text;
+  el.className = ok ? 'ok' : 'muted';
+}
+function $(id){ return document.getElementById(id); }
+function show(el, on){ el.classList.toggle('hidden', !on); }
+function showView(which){
+  show($('view-login'),    which==='login');
+  show($('view-register'), which==='register');
+  show($('view-app'),      which==='app');
+}
+
+async function api(path, {method='GET', body=null} = {}){
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : null });
+  const text = await res.text();
+  let data; try { data = text ? JSON.parse(text) : null; } catch { data = { error: text }; }
+  if (!res.ok) throw new Error(data?.error || ('HTTP '+res.status));
+  return data;
+}
+
+/* ============ 登录 / 登出 ============ */
+async function doLogin(){
+  const email = $('l-email').value.trim();
+  const password = $('l-pass').value;
+  $('msg-login').textContent = '';
+  try{
+    const data = await api('/login', {method:'POST', body:{email, password}});
+    token = data.token;
+    localStorage.setItem('token', token);
+    setStatus('已登录', true);
+    $('msg-login').textContent = '✅ 登录成功';
+    $('msg-login').className = 'ok';
+    showView('app');
+    await loadUsers('');
+    await loadLogs('');
+  }catch(e){
+    $('msg-login').textContent = '❌ ' + e.message;
+    $('msg-login').className = 'err';
+  }
+}
+
+function doLogout(){
+  token = null;
+  localStorage.removeItem('token');
+  setStatus('未登录', false);
+  $('l-pass').value = '';
+  $('msg-login').textContent = '已退出';
+  $('msg-login').className = 'muted';
+  $('users-tbody').innerHTML = '';
+  $('logs-tbody').innerHTML = '';
+  showView('login');
+}
+
+/* ============ 注册（管理员） ============ */
+async function doRegister(){
+  const code = $('code-input').value.trim();
+  const email = $('r-email').value.trim().toLowerCase();
+  const pass  = $('r-pass').value;
+  const pass2 = $('r-pass2').value;
+  $('msg-register').textContent = '';
+
+  if (!code){ $('msg-register').textContent='验证码必填'; $('msg-register').className='err'; return; }
+  if (!email || !pass){ $('msg-register').textContent='邮箱和密码必填'; $('msg-register').className='err'; return; }
+  if (pass !== pass2){ $('msg-register').textContent='两次输入的密码不一致'; $('msg-register').className='err'; return; }
+
+  try{
+    const data = await api('/register', { method:'POST', body:{ email, password: pass, code }});
+    $('msg-register').textContent = `✅ 注册成功（管理员 id=${data.id}），即将返回登录`;
+    $('msg-register').className = 'ok';
+    setTimeout(() => {
+      $('code-input').value = ''; $('r-email').value=''; $('r-pass').value=''; $('r-pass2').value='';
+      showView('login');
+    }, 600);
+  }catch(e){
+    $('msg-register').textContent = '❌ ' + e.message;
+    $('msg-register').className = 'err';
+  }
+}
+
+/* ============ 数据区：用户 / 日志 ============ */
+async function loadUsers(q){
+  if (!token){ alert('请先登录'); return; }
+  const query = q ? ('?email=' + encodeURIComponent(q)) : '';
+  try{
+    const list = await api('/users' + query);
+    const rows = list.map(u => `
+      <tr>
+        <td>${u.id}</td>
+        <td>${u.email}</td>
+        <td>${u.name || ''}</td>
+        <td>${u.region || ''}</td>
+        <td><button class="btn-view-logs" data-email="${u.email}">查看日志</button></td>
+      </tr>
+    `).join('');
+    $('users-tbody').innerHTML = rows || '<tr><td colspan="5" class="muted">无结果</td></tr>';
+  }catch(e){
+    $('users-tbody').innerHTML = `<tr><td colspan="5" class="err">拉取失败：${e.message}</td></tr>`;
+  }
+}
+
+async function loadLogs(filterEmail){
+  if (!token){ alert('请先登录'); return; }
+  const query = filterEmail ? ('?email=' + encodeURIComponent(filterEmail)) : '';
+  try{
+    const list = await api('/logs' + query);
+    const rows = list.map((l, i) => `
+      <tr>
+        <td>${i+1}</td>
+        <td>${l.userId ?? ''}</td>
+        <td>${l.email || ''}</td>
+        <td>${l.action}</td>
+        <td>${l.at}</td>
+      </tr>
+    `).join('');
+    $('logs-tbody').innerHTML = rows || '<tr><td colspan="5" class="muted">暂无日志</td></tr>';
+  }catch(e){
+    $('logs-tbody').innerHTML = `<tr><td colspan="5" class="err">拉取失败：${e.message}</td></tr>`;
+  }
+}
+
+async function loadLLMSessions(email){
+  if (!token){ alert('请先登录'); return; }
+  const q = email ? ('?email=' + encodeURIComponent(email)) : '';
+  try{
+    const list = await api('/llm/sessions' + q);
+    const rows = list.map(s => `
+      <tr>
+        <td>${s.sessionKey}</td>
+        <td>${s.userId ?? ''}</td>
+        <td>${s.email ?? ''}</td>
+        <td>${s.started_at}</td>
+        <td><button class="btn-view-events" data-session="${s.sessionKey}">查看事件</button></td>
+      </tr>
+    `).join('');
+    $('llm-sessions-tbody').innerHTML = rows || '<tr><td colspan="5" class="muted">暂无会话</td></tr>';
+  }catch(e){
+    $('llm-sessions-tbody').innerHTML = `<tr><td colspan="5" class="err">${e.message}</td></tr>`;
+  }
+}
+
+async function loadLLMEvents({ session, email, type } = {}){
+  if (!token){ alert('请先登录'); return; }
+  const p = new URLSearchParams();
+  if (session) p.set('session', session);
+  if (email)   p.set('email', email);
+  if (type)    p.set('type', type);
+  const q = p.toString() ? ('?' + p.toString()) : '';
+  try{
+    const list = await api('/llm/events' + q);
+    const rows = list.map(ev => `
+      <tr>
+        <td>${ev.ts}</td>
+        <td>${ev.type}</td>
+        <td>${ev.role || ''}</td>
+        <td>${ev.email || ''}</td>
+        <td>${ev.sessionKey}</td>
+        <td>${(ev.prompt || ev.response || '').slice(0,80)}</td>
+        <td>${ev.error_code ? '['+ev.error_code+'] ' : ''}${ev.error || ''}</td>
+      </tr>
+    `).join('');
+    $('llm-events-tbody').innerHTML = rows || '<tr><td colspan="8" class="muted">暂无事件</td></tr>';
+  }catch(e){
+    $('llm-events-tbody').innerHTML = `<tr><td colspan="8" class="err">${e.message}</td></tr>`;
+  }
+}
+
+
+/* ============ 事件绑定 ============ */
+window.addEventListener('DOMContentLoaded', () => {
+  // 视图切换
+  $('link-to-register').addEventListener('click', () => showView('register'));
+  $('link-back-login').addEventListener('click', () => showView('login'));
+
+  // 登录/登出
+  $('btn-login').addEventListener('click', doLogin);
+  $('btn-logout').addEventListener('click', doLogout);
+
+  // 注册
+  $('btn-register').addEventListener('click', doRegister);
+
+  // 搜索/全部/刷新日志
+  $('btn-search').addEventListener('click', () => {
+    const q = $('q-email').value.trim();
+    loadUsers(q); loadLogs(q);
+  });
+  $('btn-all').addEventListener('click', () => {
+    $('q-email').value=''; loadUsers(''); loadLogs('');
+  });
+  $('btn-logs').addEventListener('click', () => {
+    const q = $('q-email').value.trim(); loadLogs(q || null);
+  });
+
+  // 行内“查看日志”按钮
+  $('users-tbody').addEventListener('click', (e) => {
+    const btn = e.target.closest('.btn-view-logs');
+    if (!btn) return;
+    const email = btn.dataset.email;
+    $('q-email').value = email;
+    loadLogs(email);
+  });
+
+  // LLM：查会话
+  $('btn-llm-sessions').addEventListener('click', () => {
+    const email = $('llm-email').value.trim();
+    loadLLMSessions(email);
+  });
+
+  // LLM：查事件（可用 session/type/email 组合过滤）
+  $('btn-llm-events').addEventListener('click', () => {
+    loadLLMEvents({
+      session: $('llm-session').value.trim(),
+      type: $('llm-type').value.trim(),
+      email: $('llm-email').value.trim()
+    });
+  });
+
+  // LLM：在会话表点“查看事件”→自动把 sessionKey 带入并查询
+  $('llm-sessions-tbody').addEventListener('click', (e) => {
+    const btn = e.target.closest('.btn-view-events');
+    if (!btn) return;
+    const sk = btn.getAttribute('data-session');
+    $('llm-session').value = sk;
+    loadLLMEvents({ session: sk });
+  });
+  $('btn-viz').addEventListener('click', () => {
+    // 把当前输入的关键词和会话一起带过去（可选）
+    const kw = encodeURIComponent('draw, make a pdf, resume');   // 也可以读某个输入框
+    const sess = encodeURIComponent($('llm-session')?.value || '');
+    const q = `/viz.html?keywords=${kw}` + (sess ? `&session=${sess}` : '');
+    location.href = q;  // 跳到可视化页
+  });
+  $('llm-email').addEventListener('input', e => {
+    $('btn-viz').disabled = !e.target.value.trim();
+  });
+
+  $('btn-viz').addEventListener('click', () => {
+    const email = $('llm-email').value.trim().toLowerCase();
+    if (!email) return;
+    const kw = encodeURIComponent('draw, make a pdf, resume'); // 默认关键词；可改
+    location.href = `/viz.html?email=${encodeURIComponent(email)}&keywords=${kw}`;
+  });
+
+
+
+  // 初始：有 token 就直接进应用页
+  if (token){
+    setStatus('已登录', true);
+    showView('app');
+    loadUsers(''); loadLogs('');
+  }else{
+    setStatus('未登录', false);
+    showView('login');
+  }
+});
+</script>
+</body>
+</html>

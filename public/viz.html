@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8"/>
+  <title>LLM 关键词可视化</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    :root{--bd:#e5e7eb;--muted:#6b7280}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;max-width:960px;margin:20px auto;padding:0 12px}
+    .card{border:1px solid var(--bd);border-radius:12px;padding:16px;margin:16px 0}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .row-between{justify-content:space-between}
+    input,select{padding:10px;border:1px solid #ddd;border-radius:8px}
+    button{padding:10px 14px;border:1px solid #ddd;border-radius:10px;background:#fafafa;cursor:pointer}
+    button:hover{background:#f0f0f0}
+    .muted{color:var(--muted);font-size:12px}
+    .chart-wrap{ position:relative; height:380px; }
+    .chart-wrap canvas{ width:100% !important; height:100% !important; }
+
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <h1>LLM 关键词可视化</h1>
+
+  <div class="card">
+    <!-- 第1行：关键词 + 预设选择 -->
+    <div class="row">
+      <label>关键词（逗号分隔）</label>
+      <input id="kw" style="min-width:360px" value="draw, make a pdf, resume">
+      <select id="preset" title="选择关键词预设">
+        <option value="">（选择预设…）</option>
+      </select>
+      <div style="display:flex;align-items:center;gap:8px">
+        <label>模式</label>
+        <label><input type="radio" name="mode" value="kw" checked> 关键词</label>
+        <label><input type="radio" name="mode" value="intent"> 意图</label>
+      </div>
+
+    </div>
+
+    <!-- 第2行：预设操作 -->
+    <div class="row">
+      <button id="save-preset"   type="button">保存为预设</button>
+      <button id="update-preset" type="button">更新预设</button>
+      <button id="delete-preset" type="button">删除预设</button>
+    </div>
+
+    <!-- 第3行：左右分区 -->
+    <div class="row row-between">
+      <!-- 左：会话/时间/刷新 -->
+      <div class="row">
+        <label>会话</label>
+        <select id="session">
+          <option value="">全部会话</option>
+        </select>
+        <label>起</label>
+        <input id="from" type="date">
+        <label>止</label>
+        <input id="to" type="date">
+        <button id="refresh">刷新</button>
+      </div>
+      <!-- 右：返回/导出/下载 -->
+      <div class="row">
+        <button id="back">返回首页</button>
+        <button id="export-csv"  type="button">导出CSV</button>
+        <button id="download-png" type="button">下载PNG</button>
+      </div>
+    </div>
+
+    <div id="meta" class="muted" style="margin-top:6px"></div>
+  </div>
+
+
+  <div class="card chart-card">
+    <div class="chart-wrap"><canvas id="pie"></canvas></div>
+  </div>
+
+  <div class="card" id="examples-card" style="display:none">
+    <div class="row" style="justify-content:space-between">
+      <div><strong>示例 prompts：</strong><span id="examples-title" class="muted"></span></div>
+      <div><button id="close-examples">关闭</button></div>
+    </div>
+    <ol id="examples-list" style="margin-top:8px"></ol>
+  </div>
+
+
+
+<script>
+const $ = id => document.getElementById(id);
+const token = localStorage.getItem('token');
+
+// 读取 URL 参数
+const qs = new URLSearchParams(location.search);
+const emailParam = (qs.get('email') || '').trim().toLowerCase();
+const kwParam = qs.get('keywords');
+
+function getMode(){
+  const r = document.querySelector('input[name="mode"]:checked');
+  return r ? r.value : 'kw'; // 默认关键词模式
+}
+
+
+function needLoginOrEmail(){
+  if (!token){ alert('请先在首页登录管理员'); location.href = '/'; return true; }
+  if (!emailParam){ alert('请在首页输入邮箱后点击“可视化”'); location.href = '/'; return true; }
+  return false;
+}
+
+async function api(path){
+  const r = await fetch(path, { headers: { Authorization: 'Bearer ' + token }});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return r.json();
+}
+
+async function loadSessions(){
+  const list = await api('/llm/sessions?email=' + encodeURIComponent(emailParam));
+  const sel = $('session');
+  sel.querySelectorAll('option:not([value=""])').forEach(o=>o.remove());
+  list.forEach(s=>{
+    const opt = document.createElement('option');
+    opt.value = s.sessionKey;
+    opt.textContent = s.finalIntent
+      ? `${s.sessionKey} · ${s.finalIntent} (${Math.round((s.finalConfidence||0)*100)}%)`
+      : `${s.sessionKey}  (${s.email||'无邮箱'})`;
+
+    sel.appendChild(opt);
+  });
+}
+
+let chart;
+let lastPie = { labels: [], counts: [] };  // 当前饼图的数据
+function renderPie(data){
+  const labels = [...data.buckets.map(b=>b.name), 'other'];
+  const counts = [...data.buckets.map(b=>b.count), data.other];
+  lastPie = { labels, counts };
+  if (chart) chart.destroy();
+  chart = new Chart($('pie').getContext('2d'), {
+    type: 'pie',
+    data: { labels, datasets: [{ data: counts }] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,   // ☆ 关键：用容器高度
+      resizeDelay: 200, 
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: {
+          callbacks: {
+            label(ctx){
+              const total = counts.reduce((a,b)=>a+b,0) || 1;
+              const v = ctx.raw || 0;
+              return `${ctx.label}: ${v}（${(v/total*100).toFixed(1)}%）`;
+            }
+          }
+        }
+      }
+    }
+  });
+
+  const total = counts.reduce((a,b)=>a+b,0);
+  $('meta').textContent = `用户 ${emailParam} · 总计 ${total} 条 prompt（已按第一个命中关键词归类，未命中归为 other）。`;
+  $('kw').value = kwParam ? decodeURIComponent(kwParam) : $('kw').value;
+}
+
+function renderIntentBar(data){
+  const labels = [...data.buckets.map(b=>b.name), 'other'];
+  const counts = [...data.buckets.map(b=>b.count), data.other];
+
+  // 复用你现成的导出逻辑
+  lastPie = { labels, counts };
+
+  if (chart) chart.destroy();
+  chart = new Chart($('pie').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{ data: counts }]
+    },
+    options: {
+      indexAxis: 'y',                 // 横向
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label(ctx){
+              const total = counts.reduce((a,b)=>a+b,0) || 1;
+              const v = ctx.raw || 0;
+              return `${ctx.label}: ${v}（${(v/total*100).toFixed(1)}%）`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { beginAtZero: true, ticks: { precision: 0 } }
+      }
+    }
+  });
+}
+
+
+function getMode(){
+  return (document.querySelector('input[name="mode"]:checked')?.value) || 'kw';
+}
+
+async function loadChart(){
+  if (needLoginOrEmail()) return;
+  const kw   = encodeURIComponent($('kw').value.trim());
+  const sess = $('session').value.trim();
+  const from = $('from').value.trim();
+  const to   = $('to').value.trim();
+  const mode = getMode();
+
+  let q;
+  if (mode === 'intent') {
+    // 新接口：意图聚合
+    q = `/llm/intents?email=${encodeURIComponent(emailParam)}`
+      + (sess ? `&session=${encodeURIComponent(sess)}` : '')
+      + (from ? `&from=${encodeURIComponent(from)}`     : '')
+      + (to   ? `&to=${encodeURIComponent(to)}`         : '');
+  } else {
+    // 旧接口：关键词聚合
+    q = `/llm/keywords?keywords=${kw}&email=${encodeURIComponent(emailParam)}`
+      + (sess ? `&session=${encodeURIComponent(sess)}` : '')
+      + (from ? `&from=${encodeURIComponent(from)}`     : '')
+      + (to   ? `&to=${encodeURIComponent(to)}`         : '');
+  }
+
+  const data = await api(q);
+  if (mode === 'intent') {
+    renderIntentBar(data);
+  } else {
+    renderPie(data);
+  }
+  // 元信息
+  const total = [...(data.buckets||[]).map(b=>b.count), data.other||0].reduce((a,b)=>a+b,0);
+  const range = (from || to) ? ` · 时间 ${from || '—'} ~ ${to || '—'}` : '';
+  $('meta').textContent = `用户 ${emailParam}${range} · 总计 ${total} 条 prompt（${mode==='intent'?'按意图·条形图':'按关键词·饼图'}）`;
+
+}
+
+
+
+function downloadPNG(){
+  if (!chart){ alert('请先生成图表'); return; }
+  const url = chart.toBase64Image('image/png', 1);
+  const a = document.createElement('a');
+  const sess = $('session').value || 'all';
+  a.href = url;
+  a.download = `keywords_${emailParam}_${sess}.png`;
+  a.click();
+}
+
+function exportCSV(){
+  const total = lastPie.counts.reduce((a,b)=>a+b,0);
+  if (total === 0){ alert('没有数据可导出'); return; }
+  const rows = [['keyword','count','percent']];
+  lastPie.labels.forEach((lab, i) => {
+    const v = lastPie.counts[i] || 0;
+    const pct = total ? (v/total*100).toFixed(1) : '0.0';
+    rows.push([lab, v, pct + '%']);
+  });
+  // 简单CSV转义
+  const csv = rows
+    .map(r => r.map(x => {
+      const s = String(x);
+      return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+    }).join(','))
+    .join('\r\n');
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  const sess = $('session').value || 'all';
+  a.href = URL.createObjectURL(blob);
+  a.download = `keywords_${emailParam}_${sess}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function loadExamples(bucketLabel){
+  const kw   = $('kw').value.trim();
+  const sess = $('session').value.trim();
+  const from = $('from').value.trim();
+  const to   = $('to').value.trim();
+
+  let url = `/llm/keywords/examples?keyword=${encodeURIComponent(bucketLabel)}`
+          + `&keywords=${encodeURIComponent(kw)}`
+          + `&email=${encodeURIComponent(emailParam)}`
+          + (sess ? `&session=${encodeURIComponent(sess)}` : '')
+          + (from ? `&from=${encodeURIComponent(from)}` : '')
+          + (to   ? `&to=${encodeURIComponent(to)}`   : '')
+          + `&limit=20`;
+
+  try{
+    const data = await api(url);
+    const list = data.examples || [];
+    const ol = $('examples-list');
+    ol.innerHTML = list.length
+      ? list.map(x => `<li><span class="muted">${x.ts} · ${x.sessionKey}</span><br>${escapeHtml((x.prompt||'').replace(/\r?\n/g,' '))}</li>`).join('')
+      : '<li class="muted">暂无示例</li>';
+    $('examples-title').textContent = `「${bucketLabel}」 · 前 ${Math.min(20, list.length)} 条`;
+    $('examples-card').style.display = 'block';
+    $('examples-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }catch(e){
+    alert('加载示例失败：' + e.message);
+  }
+}
+
+async function loadIntentExamples(intentLabel){
+  const sess = $('session').value.trim();
+  const from = $('from').value.trim();
+  const to   = $('to').value.trim();
+
+  let url = `/llm/intents/examples?intent=${encodeURIComponent(intentLabel)}`
+          + `&email=${encodeURIComponent(emailParam)}`
+          + (sess ? `&session=${encodeURIComponent(sess)}` : '')
+          + (from ? `&from=${encodeURIComponent(from)}` : '')
+          + (to   ? `&to=${encodeURIComponent(to)}`   : '')
+          + `&limit=20`;
+
+  try{
+    const data = await api(url);
+    const list = data.examples || [];
+    const ol = $('examples-list');
+    ol.innerHTML = list.length
+      ? list.map(x => `<li><span class="muted">${x.ts} · ${x.sessionKey}</span><br>${escapeHtml((x.prompt||'').replace(/\r?\n/g,' '))}</li>`).join('')
+      : '<li class="muted">暂无示例</li>';
+    $('examples-title').textContent = `意图「${intentLabel}」 · 前 ${Math.min(20, list.length)} 条`;
+    $('examples-card').style.display = 'block';
+    $('examples-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }catch(e){
+    alert('加载示例失败：' + e.message);
+  }
+}
+
+
+function escapeHtml(s){
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// 绑定：点击饼图某一块 -> 拉示例
+$('pie').addEventListener('click', (evt) => {
+  if (!chart) return;
+  const points = chart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
+  if (!points.length) return;
+  const idx   = points[0].index;
+  const label = chart.data.labels[idx];
+  const count = chart.data.datasets[0].data[idx] || 0;
+  if (count <= 0) return;
+
+  const mode = getMode(); // ← 根据单选切换：'kw' | 'intent'
+  if (mode === 'intent') {
+    loadIntentExamples(label);   // 意图模式：看该意图的示例
+  } else {
+    loadExamples(label);         // 关键词模式：看该关键词的示例（你已有）
+  }
+});
+
+
+// 关闭示例
+$('close-examples').addEventListener('click', () => {
+  $('examples-card').style.display = 'none';
+});
+
+
+// 事件绑定（放在 DOMContentLoaded 里或之后）
+$('download-png').addEventListener('click', downloadPNG);
+$('export-csv').addEventListener('click', exportCSV);
+
+// ==== 关键词预设（按邮箱分组保存在 localStorage）====
+const LS_KEY = 'kw_presets_v1';
+
+function _loadAllPresets(){
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); }
+  catch { return {}; }
+}
+function _saveAllPresets(obj){
+  localStorage.setItem(LS_KEY, JSON.stringify(obj));
+}
+function getPresetsFor(email){
+  const all = _loadAllPresets();
+  return all[email] || {};
+}
+function setPresetFor(email, name, kwStr){
+  const all = _loadAllPresets();
+  all[email] = all[email] || {};
+  all[email][name] = kwStr;
+  _saveAllPresets(all);
+}
+function deletePresetFor(email, name){
+  const all = _loadAllPresets();
+  if (all[email]) {
+    delete all[email][name];
+    _saveAllPresets(all);
+  }
+}
+function refreshPresetSelect(selectName){
+  const sel = $('preset');
+  // 清空除占位项外的所有条目
+  sel.querySelectorAll('option:not([value=""])').forEach(o => o.remove());
+  const map = getPresetsFor(emailParam);
+  Object.keys(map).sort().forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  });
+  if (selectName && map[selectName]) sel.value = selectName;
+}
+
+// ==== 事件：保存 / 更新 / 删除 / 选择预设 ====
+function bindPresetEvents(){
+  $('save-preset').addEventListener('click', () => {
+    const name = prompt('预设名称（例如：绘图+简历）');
+    if (!name) return;
+    const kw = $('kw').value.trim();
+    if (!kw) return alert('关键词不能为空');
+    setPresetFor(emailParam, name, kw);
+    refreshPresetSelect(name);
+  });
+
+  $('update-preset').addEventListener('click', () => {
+    const name = $('preset').value;
+    if (!name) return alert('请先从下拉框选择一个预设');
+    const kw = $('kw').value.trim();
+    if (!kw) return alert('关键词不能为空');
+    setPresetFor(emailParam, name, kw);
+    alert('已更新：' + name);
+  });
+
+  $('delete-preset').addEventListener('click', () => {
+    const name = $('preset').value;
+    if (!name) return alert('请先从下拉框选择一个预设');
+    if (!confirm(`确定删除预设「${name}」吗？`)) return;
+    deletePresetFor(emailParam, name);
+    refreshPresetSelect('');
+  });
+
+  $('preset').addEventListener('change', () => {
+    const name = $('preset').value;
+    if (!name) return;
+    const map = getPresetsFor(emailParam);
+    const kw = map[name];
+    if (kw) {
+      $('kw').value = kw;
+      loadChart();  // 立即重绘饼图
+    }
+  });
+}
+
+
+
+window.addEventListener('DOMContentLoaded', async ()=>{
+  if (needLoginOrEmail()) return;
+  try{
+    await loadSessions();   // 只加载该用户的会话
+    await loadChart();      // 默认统计该用户的全部会话
+  }catch(e){
+    alert('加载失败：' + e.message);
+  }
+  $('refresh').addEventListener('click', loadChart);
+  $('back').addEventListener('click', ()=> location.href = '/');
+  $('from').addEventListener('change', loadChart);
+  $('to').addEventListener('change',   loadChart);
+  refreshPresetSelect();
+  bindPresetEvents();
+});
+</script>
+
+</body>
+</html>
