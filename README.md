@@ -12,7 +12,7 @@ Simple User App (Node + MySQL)
 
 （可选）意图统计接口与示例
 
-前端页面：
+前端页面
 
 /：主页（登录、用户/日志列表、进入可视化）
 
@@ -74,16 +74,21 @@ PORT=3000
 ⚠️ .env 请勿提交到仓库。.gitignore 已默认忽略。
 
 4) 本地运行
-# 开发模式（需要 nodemon）
+
+开发模式（需要 nodemon）：
+
 npm run dev
 
-# 或生产/普通模式
+
+或生产/普通模式：
+
 npm start
 
 
 访问：http://localhost:3000
 
 Windows 提示：若遇到 “npm.ps1 因执行策略被禁止”，在 PowerShell 执行：
+
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 使用说明
@@ -120,10 +125,16 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 点击饼图扇区可查看该分类下的 示例 prompts
 
 上报 LLM 行为
+
 端点
+
 POST /llm/track
 Headers: x-ingest-key: <INGEST_TOKEN>
-Body(JSON):
+Content-Type: application/json
+
+
+Body(JSON)
+
 {
   "sessionId": "sess-001",
   "userEmail": "alice@example.com",   // 或 userId（二选一）
@@ -135,12 +146,12 @@ Body(JSON):
   "tool": { "name": "search", "args": {"q":"..."} },
   "error": null,
   "errorCode": null,
-  "tags": { "lang": "en" },          // 任意 JSON
-  "meta": { "app": "web" }           // 任意 JSON
+  "tags": { "lang": "en" },           // 任意 JSON
+  "meta": { "app": "web" }            // 任意 JSON
 }
 
 
-说明：
+说明
 
 系统会自动 ensure session（会话不存在则创建）
 
@@ -149,6 +160,7 @@ Body(JSON):
 eventType = "session_end" 可用于结算会话（后端会将该会话的最终意图写入 llm_sessions.final_intent / final_confidence / final_at）
 
 简易示例（curl）
+
 curl -X POST http://localhost:3000/llm/track \
   -H "Content-Type: application/json" \
   -H "x-ingest-key: dev_ingest_key_123" \
@@ -162,7 +174,7 @@ curl -X POST http://localhost:3000/llm/track \
 
 管理接口（节选）
 
-这些接口都需要在 Authorization: Bearer <token> 下调用（管理员登录获取）。
+以下接口均需 Authorization: Bearer <token>（管理员登录获取）
 
 GET /users?email=<q>
 列出用户（可模糊搜索 email）
@@ -174,7 +186,7 @@ POST /logs
 手工写入一条日志（演示用途）
 
 GET /llm/sessions?email=<user@x.com>
-列出该用户的会话（含 final_intent/final_confidence/final_at）
+列出该用户的会话（含 final_intent / final_confidence / final_at）
 
 GET /llm/events?email=&session=&type=&from=&to=&limit=
 查询事件列表（按用户/会话/时间范围筛选）
@@ -188,10 +200,10 @@ GET /llm/keywords?keywords=a,b,c&email=&session=&from=&to=
 GET /llm/keywords/examples?keyword=<k>&keywords=a,b,c&email=&session=&from=&to=&limit=20
 返回该分类下的示例 prompts（时间倒序）
 
-GET /llm/intents?email=&session=&from=&to=（可选）
+（可选）GET /llm/intents?email=&session=&from=&to=
 统计意图分布（基于 prompt+response 的启发式规则）
 
-GET /llm/intents/examples?intent=<name>&...（可选）
+（可选）GET /llm/intents/examples?intent=<name>&...
 某意图的示例
 
 生产环境注意事项
@@ -210,11 +222,11 @@ CORS：默认 cors() 全开，公网部署时建议按域名收紧
 
 常见问题
 
-浏览器打不开 http://localhost:3000
-确认服务已启动、端口未占用、防火墙未拦截。
+浏览器打不开 http://localhost:3000：确认服务已启动、端口未占用、防火墙未拦截。
 
-Windows 提示 npm.ps1 禁止执行
-PowerShell 执行：Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+Windows 提示 npm.ps1 禁止执行：PowerShell 执行
 
-接口 401/403
-确认已登录并把 token 放到 Authorization: Bearer <token>，或 x-ingest-key 是否正确。
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+
+接口 401/403：确认已登录并把 token 放到 Authorization: Bearer <token>，或 x-ingest-key 是否正确。
